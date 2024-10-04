@@ -1,11 +1,10 @@
 from datetime import timedelta
-from typing import Optional, Tuple, List
+from typing import List, Optional, Tuple
 
+import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib import gridspec
-from matplotlib import rcParams
-from matplotlib import ticker
+from matplotlib import gridspec, rcParams, ticker
 from matplotlib.figure import Figure
 
 __author__ = "Ben Dichter"
@@ -16,7 +15,7 @@ class BrokenAxes:
         self,
         xlims: Optional[Tuple[Tuple[float, float], ...]] = None,
         ylims: Optional[Tuple[Tuple[float, float], ...]] = None,
-        d: float = 0.015,
+        d: Optional[float]=None,
         tilt: float = 45,
         subplot_spec: Optional[gridspec.GridSpec] = None,
         fig: Optional[Figure] = None,
@@ -38,8 +37,8 @@ class BrokenAxes:
             X-axis limits for each subplot. If `None`, the x-axis is not broken.
         ylims : tuple of tuples, optional
             Y-axis limits for each subplot. If `None`, the y-axis is not broken.
-        d : float, default=0.015
-            Length of diagonal split mark used to indicate broken axes.
+        d : float, optional
+            Length in points of the diagonal split mark used to indicate broken axes.
         tilt : float, default=45
             Angle of diagonal split mark.
         subplot_spec : Gridspec.subplot_spec, optional
@@ -71,7 +70,7 @@ class BrokenAxes:
         self._spines = None
         self.diag_color: str = diag_color
         self.despine: bool = despine
-        self.d: float = d
+        self.d: float = d if (d is not None) else matplotlib.rcParams["xtick.major.size"]*1.5
         self.tilt: float = tilt
         self.fig: Figure = fig if fig is not None else plt.gcf()
         self.diag_handles: List = []
@@ -127,7 +126,7 @@ class BrokenAxes:
                 ax.set_xlim(xlims[i % ncols])
                 ax.sharex(self.last_row[i % ncols])
         self.standardize_ticks()
-        if d:
+        if self.d:
             self.draw_diags()
         self.set_spines()
 
@@ -158,8 +157,30 @@ class BrokenAxes:
         return ratios
 
     @staticmethod
-    def draw_diag(ax, xpos, ypos, xlen, ylen, **kwargs):
-        return ax.plot((xpos - xlen, xpos + xlen), (ypos - ylen, ypos + ylen), **kwargs)
+    def draw_diag(ax,x0,y0,L,theta,linewidth=None,**kwargs):    
+        # Calculate the offset in display units (pixels)
+        dx = L * np.cos(np.deg2rad(theta))
+        dy = L * np.sin(np.deg2rad(theta))
+        
+        kwargs=dict(
+            xy=(x0, y0), xycoords='axes fraction',
+            textcoords='offset points',
+            arrowprops=dict(arrowstyle='-', color='black',shrinkA=0,shrinkB=0,linewidth=linewidth),
+            annotation_clip=False
+        )|kwargs
+        
+        # Draw the slash using an annotation with offset in pixels
+        a1=ax.annotate(
+            '', 
+            xytext=(dx, dy),
+            **kwargs
+        )
+        a2=ax.annotate(
+            '',
+            xytext=(-dx, -dy),
+            **kwargs
+        )
+        return (a1,a2)
 
     def draw_diags(self, d=None, tilt=None):
         """
@@ -175,20 +196,19 @@ class BrokenAxes:
             self.d = d
         if tilt is not None:
             self.tilt = tilt
-        size = self.fig.get_size_inches()
-
-        d_kwargs = dict(
-            transform=self.fig.transFigure,
-            color=self.diag_color,
-            clip_on=False,
-            lw=rcParams["axes.linewidth"],
-            ylen=self.d * np.sin(self.tilt * np.pi / 180) * size[0] / size[1],
-            xlen=self.d * np.cos(self.tilt * np.pi / 180)
-        )
-
+        
         ds = []
+        
+
         for ax in self.axs:
-            bounds = ax.get_position().bounds
+
+            d_kwargs = dict(
+                L=self.d,
+                theta=self.tilt,
+                color=self.diag_color,
+                linewidth=rcParams["axes.linewidth"],
+            )
+            bounds=[0.,0.,1.,1.]
 
             if ax.get_subplotspec().is_last_row():
                 ypos = bounds[1]
